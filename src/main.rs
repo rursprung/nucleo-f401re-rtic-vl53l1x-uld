@@ -7,14 +7,21 @@ use panic_halt as _; // panic handler
 
 use defmt_rtt as _;
 
-
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI1])]
 mod app {
-    use stm32f4xx_hal::{
-        pac,
+    use embedded_graphics::{
+        mono_font::{
+            ascii::{FONT_6X12},
+            MonoTextStyleBuilder,
+        },
+        pixelcolor::BinaryColor,
         prelude::*,
-        timer::MonoTimerUs,
-        watchdog::IndependentWatchdog,
+        text::Text,
+    };
+    use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
+    use stm32f4xx_hal::rcc::{Clocks, Rcc};
+    use stm32f4xx_hal::{
+        i2c::I2c, pac, prelude::*, timer::MonoTimerUs, watchdog::IndependentWatchdog,
     };
 
     #[monotonic(binds = TIM2, default = true)]
@@ -44,15 +51,39 @@ mod app {
         watchdog.feed();
         periodic::spawn().ok();
 
+        // set up I2C
+        let gpiob = ctx.device.GPIOB.split();
+        let i2c = I2c::new(
+            ctx.device.I2C1,
+            (
+                gpiob.pb8.into_alternate().set_open_drain(),
+                gpiob.pb9.into_alternate().set_open_drain(),
+            ),
+            400.kHz(),
+            &clocks,
+        );
+
+        // set up the display
+        let interface = I2CDisplayInterface::new_alternate_address(i2c); // our display runs on 0x3D, not 0x3C
+        let mut disp = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+            .into_buffered_graphics_mode();
+        disp.init().unwrap();
+        disp.flush().unwrap();
+
         defmt::info!("init done!");
 
-        (
-            Shared {},
-            Local {
-                watchdog,
-            },
-            init::Monotonics(mono),
-        )
+        // test draw on display
+        let text_style = MonoTextStyleBuilder::new()
+            .font(&FONT_6X12)
+            .text_color(BinaryColor::On)
+            .build();
+
+        Text::new("Hello World!", Point::new(15, 15), text_style)
+            .draw(&mut disp)
+            .unwrap();
+        disp.flush().unwrap();
+
+        (Shared {}, Local { watchdog }, init::Monotonics(mono))
     }
 
     // Feed the watchdog to avoid hardware reset.

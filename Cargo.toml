@@ -11,6 +11,10 @@ panic-halt = "0.2"
 
 stm32f4xx-hal = { version = "0.13.2", features = ["stm32f401", "rtic", "rtic-monotonic"] }
 
+# display
+embedded-graphics = "0.7.1"
+ssd1306 = "0.7.1"
+
 fugit = "0.3"
 
 defmt = "0.3.2"
