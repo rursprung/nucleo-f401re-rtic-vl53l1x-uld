@@ -10,6 +10,7 @@ use defmt_rtt as _;
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI1])]
 mod app {
     use embedded_graphics::{
+        image::{Image, ImageRaw},
         mono_font::{ascii::FONT_6X12, MonoTextStyleBuilder},
         pixelcolor::BinaryColor,
         prelude::*,
@@ -56,12 +57,22 @@ mod app {
         let i2c = I2c::new(ctx.device.I2C1, (gpiob.pb8, gpiob.pb9), 400.kHz(), &clocks);
 
         // set up the display
-        let display = setup_display(i2c);
+        let mut display = setup_display(i2c);
 
         defmt::info!("init done!");
 
-        // test draw on display
-        show_hello::spawn().ok();
+        // show rust logo
+        let (w, h) = display.dimensions();
+        let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("./rust.raw"), 64);
+        let im = Image::new(
+            &raw,
+            Point::new(w as i32 / 2 - 64 / 2, h as i32 / 2 - 64 / 2),
+        );
+        im.draw(&mut display).unwrap();
+        display.flush().unwrap();
+
+        // show a message a bit later
+        show_hello::spawn_after(10.secs()).ok();
 
         (
             Shared {},
@@ -88,11 +99,11 @@ mod app {
     /// Setup the SSD1306 display
     fn setup_display(i2c: I2C1) -> Display {
         let interface = I2CDisplayInterface::new_alternate_address(i2c); // our display runs on 0x3D, not 0x3C
-        let mut disp = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+        let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode();
-        disp.init().unwrap();
-        disp.flush().unwrap();
-        disp
+        display.init().unwrap();
+        display.flush().unwrap();
+        display
     }
 
     /// Feed the watchdog to avoid hardware reset.
@@ -106,14 +117,15 @@ mod app {
     /// Display Hello Message
     #[task(priority=1, local=[display])]
     fn show_hello(ctx: show_hello::Context) {
+        let display = ctx.local.display;
+        display.clear();
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_6X12)
             .text_color(BinaryColor::On)
             .build();
-
         Text::new("Hello World!", Point::new(15, 15), text_style)
-            .draw(ctx.local.display)
+            .draw(display)
             .unwrap();
-        ctx.local.display.flush().unwrap();
+        display.flush().unwrap();
     }
 }
