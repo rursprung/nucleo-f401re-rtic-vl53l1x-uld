@@ -39,9 +39,8 @@ mod app {
     fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let mut syscfg = ctx.device.SYSCFG.constrain();
 
-        // Set up the system clock. We want to run at 48MHz for this one.
         let rcc = ctx.device.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(48.MHz()).freeze();
+        let clocks = setup_clocks(rcc);
 
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
 
@@ -84,6 +83,10 @@ mod app {
         disp.flush().unwrap();
 
         (Shared {}, Local { watchdog }, init::Monotonics(mono))
+    }
+
+    fn setup_clocks(rcc: Rcc) -> Clocks {
+        rcc.cfgr.sysclk(84.MHz()).freeze()
     }
 
     // Feed the watchdog to avoid hardware reset.
