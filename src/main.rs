@@ -3,7 +3,8 @@
 #![no_std]
 
 // Halt on panic
-use panic_halt as _; // panic handler
+//use panic_halt as _; // panic handler
+use panic_probe as _;
 
 use defmt_rtt as _;
 
@@ -12,7 +13,7 @@ mod app {
     use stm32f4xx_hal::pac::IWDG;
     use stm32f4xx_hal::rcc::{Clocks, Rcc};
     use stm32f4xx_hal::{
-        gpio::{Edge, PB8, PB9},
+        gpio::{Edge, Input, PA0, PB8, PB9},
         i2c::{I2c, I2c1},
         pac,
         prelude::*,
@@ -40,6 +41,7 @@ mod app {
     struct Local {
         watchdog: IndependentWatchdog,
         tof_sensor: TOFSensor,
+        tof_data_interrupt: PA0<Input>,
     }
 
     #[init]
@@ -62,20 +64,19 @@ mod app {
         let mut tof_data_interrupt = gpioa.pa0.into_pull_down_input();
         tof_data_interrupt.make_interrupt_source(&mut syscfg);
         tof_data_interrupt.enable_interrupt(&mut ctx.device.EXTI);
-        tof_data_interrupt.trigger_on_edge(&mut ctx.device.EXTI, Edge::Rising);
+        tof_data_interrupt.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
 
         // set up the TOF sensor
         let tof_sensor = setup_tof(i2c, &mut delay);
 
         defmt::info!("init done!");
 
-        //poll_tof::spawn().ok();
-
         (
             Shared { delay },
             Local {
                 watchdog,
                 tof_sensor,
+                tof_data_interrupt,
             },
             init::Monotonics(mono),
         )
@@ -119,8 +120,10 @@ mod app {
     }
 
     /// Triggers every time the TOF has data (= new range measurement) available to be consumed.
-    #[task(binds=EXTI0, shared=[delay], local=[tof_sensor])]
+    #[task(binds=EXTI0, shared=[delay], local=[tof_sensor, tof_data_interrupt])]
     fn tof_interrupt_triggered(mut ctx: tof_interrupt_triggered::Context) {
+        ctx.local.tof_data_interrupt.clear_interrupt_pending_bit();
+
         let vl53l1_dev = &mut ctx.local.tof_sensor.device;
         let i2c = &mut ctx.local.tof_sensor.i2c;
         ctx.shared.delay.lock(|delay| {
