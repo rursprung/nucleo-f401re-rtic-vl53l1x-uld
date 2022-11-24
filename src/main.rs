@@ -17,10 +17,10 @@ mod app {
         i2c::{I2c, I2c1},
         pac,
         prelude::*,
-        timer::{MonoTimerUs, SysDelay},
+        timer::MonoTimerUs,
         watchdog::IndependentWatchdog,
     };
-    use vl53l1;
+    use vl53l1x_uld::{IOVoltage, VL53L1X, Polarity};
 
     #[monotonic(binds = TIM2, default = true)]
     type MicrosecMono = MonoTimerUs<pac::TIM2>;
@@ -28,14 +28,12 @@ mod app {
     type I2C1 = I2c1<(PB8, PB9)>;
 
     pub struct TOFSensor {
-        device: vl53l1::Device,
+        device: VL53L1X<I2C1>,
         i2c: I2C1,
     }
 
     #[shared]
-    struct Shared {
-        delay: SysDelay,
-    }
+    struct Shared {}
 
     #[local]
     struct Local {
@@ -52,8 +50,6 @@ mod app {
         let clocks = setup_clocks(rcc);
         let mono = ctx.device.TIM2.monotonic_us(&clocks);
 
-        let mut delay = ctx.core.SYST.delay(&clocks);
-
         let watchdog = setup_watchdog(ctx.device.IWDG);
 
         // set up I2C
@@ -67,12 +63,12 @@ mod app {
         tof_data_interrupt.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
 
         // set up the TOF sensor
-        let tof_sensor = setup_tof(i2c, &mut delay);
+        let tof_sensor = setup_tof(i2c);
 
         defmt::info!("init done!");
 
         (
-            Shared { delay },
+            Shared {},
             Local {
                 watchdog,
                 tof_sensor,
@@ -98,47 +94,33 @@ mod app {
     }
 
     /// Set up the TOF Sensor
-    fn setup_tof<D>(mut i2c: I2C1, delay: &mut D) -> TOFSensor
-    where
-        D: vl53l1::Delay,
-    {
-        let mut vl53l1_dev = vl53l1::Device::default();
-        vl53l1::software_reset(&mut vl53l1_dev, &mut i2c, delay).unwrap();
-        vl53l1::data_init(&mut vl53l1_dev, &mut i2c).unwrap();
-        vl53l1::static_init(&mut vl53l1_dev).unwrap();
-
-        // TODO: find numbers which work well for this project (don't trigger too often but do trigger often enough)
-        vl53l1::set_measurement_timing_budget_micro_seconds(&mut vl53l1_dev, 50_000).unwrap();
-        vl53l1::set_inter_measurement_period_milli_seconds(&mut vl53l1_dev, 60).unwrap();
-
-        vl53l1::start_measurement(&mut vl53l1_dev, &mut i2c).unwrap();
-
-        TOFSensor {
-            device: vl53l1_dev,
-            i2c,
+    fn setup_tof(mut i2c: I2C1) -> TOFSensor {
+        let dev = VL53L1X::new(0x29);
+        if let Err(_) = dev.init(&mut i2c, IOVoltage::Volt2_8) {
+            defmt::error!("init failed");
         }
+
+        if let Err(_) = dev.set_interrupt_polarity(&mut i2c, Polarity::ActiveHigh) {
+            defmt::error!("set_interrupt_polarity failed");
+        }
+        if let Err(_) = dev.start_ranging(&mut i2c) {
+            defmt::error!("start_ranging failed");
+        }
+
+        TOFSensor { device: dev, i2c }
     }
 
     /// Triggers every time the TOF has data (= new range measurement) available to be consumed.
-    #[task(binds=EXTI0, shared=[delay], local=[tof_sensor, tof_data_interrupt])]
-    fn tof_interrupt_triggered(mut ctx: tof_interrupt_triggered::Context) {
+    #[task(binds=EXTI0, local=[tof_sensor, tof_data_interrupt])]
+    fn tof_interrupt_triggered(ctx: tof_interrupt_triggered::Context) {
         ctx.local.tof_data_interrupt.clear_interrupt_pending_bit();
 
-        let vl53l1_dev = &mut ctx.local.tof_sensor.device;
+        let vl53l1x_dev = &mut ctx.local.tof_sensor.device;
         let i2c = &mut ctx.local.tof_sensor.i2c;
-        ctx.shared.delay.lock(|delay| {
-            let rmd = vl53l1::get_ranging_measurement_data(vl53l1_dev, i2c).unwrap();
-            vl53l1::clear_interrupt_and_start_measurement(vl53l1_dev, i2c, delay).unwrap();
-            match rmd.range_status {
-                vl53l1::RangeStatus::RANGE_VALID => {
-                    defmt::info!("Received range: {}mm", rmd.range_milli_meter)
-                }
-                status => defmt::warn!(
-                    "Received invalid range status: {:?}",
-                    defmt::Debug2Format(&status)
-                ),
-            }
-        });
+        if let Ok(distance) = vl53l1x_dev.get_distance(i2c) {
+            defmt::info!("Received range: {}mm", distance);
+        }
+        vl53l1x_dev.clear_interrupt(i2c).ok();
     }
 
     /// Feed the watchdog to avoid hardware reset.
