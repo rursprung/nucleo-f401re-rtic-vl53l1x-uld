@@ -13,7 +13,7 @@ mod app {
     use stm32f4xx_hal::pac::IWDG;
     use stm32f4xx_hal::rcc::{Clocks, Rcc};
     use stm32f4xx_hal::{
-        gpio::{Edge, Input, PA0, PB8, PB9},
+        gpio::{Edge, Input, PA0},
         i2c::{I2c, I2c1},
         pac,
         prelude::*,
@@ -25,8 +25,7 @@ mod app {
     #[monotonic(binds = TIM2, default = true)]
     type MicrosecMono = MonoTimerUs<pac::TIM2>;
 
-    type I2C1 = I2c1<(PB8, PB9)>;
-    type TOFSensor = VL53L1X<I2C1>;
+    type TOFSensor = VL53L1X<I2c1>;
 
     #[shared]
     struct Shared {}
@@ -90,7 +89,7 @@ mod app {
     }
 
     /// Set up the TOF Sensor
-    fn setup_tof(i2c: I2C1) -> TOFSensor {
+    fn setup_tof(i2c: I2c1) -> TOFSensor {
         let mut dev = VL53L1X::new(i2c, vl53l1x_uld::DEFAULT_ADDRESS);
         dev.init(IOVoltage::Volt2_8).expect("");
         dev.set_interrupt_polarity(Polarity::ActiveHigh).expect("");
