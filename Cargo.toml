@@ -11,7 +11,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 
 stm32f4xx-hal = { version = "0.18", features = ["stm32f401", "rtic", "rtic-monotonic"] }
 
-vl53l1x-uld = "2.0.0"
+vl53l1x-uld = "2.0.1"
 
 fugit = "0.3"
 
