@@ -613,9 +613,9 @@ dependencies = [
 
 [[package]]
 name = "vl53l1x-uld"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a92d98b8e4bbe24654db2b7bc88fdb285248d5ff3f04dc4d7108b3c9316b6707"
+checksum = "6a6c5dd7a38f7e9cc03173f74002b3ea23b7482e00b9a52e863030fd8316c8b1"
 dependencies = [
  "cfg-if",
  "embedded-hal 0.2.7",
